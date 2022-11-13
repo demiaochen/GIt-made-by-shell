@@ -1,0 +1,61 @@
+#!/bin/dash
+
+# check .tigger exists 
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-add"
+
+# get repo from current_branch
+repo=$(cat .tigger/.current_branch)/repo
+
+# The tigger-add command adds the contents of one or more files to the index.
+# Files are added to the repository in a two-step process. 
+# The first step is adding them to the index.
+# You will need to store files in the index somehow in the .tigger sub-directory. 
+# For example, you might choose store them in a sub-directory of .tigger.
+# Only ordinary files in the current directory can be added. 
+# You can assume filenames start with an alphanumeric character ([a-zA-Z0-9]) 
+# and will only contain alpha-numeric characters, plus '.', '-' and '_' characters.
+# The tigger-add command, and other Tigger commands, will not be given pathnames with slashes.
+
+if [ $# -eq 0 ]; then
+    echo "usage: tigger-add <filenames>"
+    exit 1
+fi
+
+######################### error checking ############################
+
+for file in "$@"; do
+    if ! [ -f "$file" ]; then
+        # if file is not in repo and current directory, error
+        if  ! [ -f .tigger/"$repo"/"$(basename "$file")" ]; then
+            echo "tigger-add: error: can not open '$file'"
+            exit 1
+        fi
+    fi
+done
+
+
+######################### implementations ############################
+
+for file in "$@"; do
+    if ! [ -f "$file" ]; then
+        # if file is in repo / tagged but not in current directory
+        # stagging \!file in stagged indicates the file is deleted
+        # and commit it will delete it in repository
+        if [ -f .tigger/"$repo"/"$(basename "$file")" ]; then
+            touch .tigger/stagged/\!"$(basename "$file")"
+        fi
+    fi
+done
+
+# copy files to stagged directory
+for file in "$@"; do
+    cp "$file" .tigger/stagged/ 2>/dev/null
+    for commited_file in .tigger/"$repo"/*; do
+        # if the file is in the last commit with no difference, then remove it from stagged
+        if [ "$(basename "$file")" = "$(basename "$commited_file")" ] && cmp --silent "$file" "$commited_file"; then
+            cmp --silent "$file" "$commited_file"
+            rm ".tigger/stagged/$file"
+        fi
+    done
+done

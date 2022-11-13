@@ -1,0 +1,174 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-rm"
+
+# get repo from current_branch
+repo=$(cat .tigger/.current_branch)/repo
+
+# tigger-rm removes a file from the index, 
+# or from the current directory and the index.
+# If the --cached option is specified, the file is removed only from the index,
+# and not from the current directory.
+# tigger-rm, like git rm, should stop the user accidentally losing work, \
+# and should give an error message instead if the removal would cause the user to lose work. 
+# You will need to experiment with the reference implementation to discover these error messages. 
+# Researching git rm's behaviour may also help.
+# The --force option overrides this, and will carry out the 
+# removal even if the user will lose work.
+
+########################## command line arguments handle ####################################
+usage(){
+    echo "usage: tigger-rm [--force] [--cached] <filenames>"
+    exit 1
+}
+
+force=false
+cached=false
+
+# usage: tigger-rm [--force] [--cached] <filenames>
+if [ $# -lt  1 ] ; then
+    usage
+fi
+
+# if there is --force in command line arguments, set force to true
+for argument in "$@"; do
+    if [ "$argument" = '--force' ]; then
+        force=true
+    fi
+done
+
+# if there is --cached in command line arguments, set cached to true
+for argument in "$@"; do
+    if [ "$argument" = '--cached' ]; then
+        cached=true
+    fi
+done
+
+
+######################################### error checking #######################################
+# pre exit if any error occurs in any file
+for query_file in "$@"; do
+    if [ "$query_file" = '--force' ] || [ "$query_file" = '--cached' ]; then
+        continue
+    fi
+    # if comand argument starts with '-', it is an error'
+    if [ "${query_file%"${query_file#?}"}" = "-" ]; then
+        usage
+    fi
+    # in stagged    
+    if [ -f ".tigger/stagged/$(basename "$query_file")" ]; then
+        if [ $force = true ]; then
+            if [ $cached = false ] && ! [ -f "$query_file" ]; then
+                echo "tigger-rm: error: '$(basename "$query_file")' is not in the tigger repository"
+                exit 1
+            fi
+        elif [ $cached = true ] && ! [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+            true
+        elif  [ $cached = true ] && [ -f ".tigger/$repo/$(basename "$query_file")" ] &&\
+            cmp --silent ".tigger/stagged/$(basename "$query_file")" ".tigger/$repo/$(basename "$query_file")" 2>/dev/null; then
+            true
+        elif  [ $cached = true ] && [ -f ".tigger/$repo/$(basename "$query_file")" ] &&\
+            cmp --silent "$query_file" ".tigger/$repo/$(basename "$query_file")" 2>/dev/null; then
+            true
+        elif  [ $cached = true ] && [ -f ".tigger/$repo/$(basename "$query_file")" ] &&\
+            cmp --silent "$query_file" ".tigger/stagged/$(basename "$query_file")" 2>/dev/null; then
+            true
+        elif [ -f ".tigger/$repo/$(basename "$query_file")" ] &&\
+            ! cmp --silent "$query_file" ".tigger/$repo/$(basename "$query_file")" 2>/dev/null &&\
+            ! cmp --silent "$query_file" ".tigger/stagged/$(basename "$query_file")" 2>/dev/null; then
+            echo "tigger-rm: error: '$query_file' in index is different to both the working file and the repository"
+            exit 1
+        else 
+            echo "tigger-rm: error: '$query_file' has staged changes in the index"
+            exit 1
+        fi
+    # in repo (repo)  
+    elif [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+        # if the file in repo and working file is different, error
+        if [ $cached != true ] && [ $force != true ] && \
+        ! cmp --silent "$query_file" ".tigger/$repo/$(basename "$query_file")"; then
+            echo "tigger-rm: error: '$query_file' in the repository is different to the working file"
+            exit 1
+        fi
+        if [ $cached = false ] && ! [ -f "$query_file" ]; then
+            echo "tigger-rm: error: '$(basename "$query_file")' is not in the tigger repository"
+            exit 1
+        fi
+    # not in tigger repository    
+    else 
+        echo "tigger-rm: error: '$(basename "$query_file")' is not in the tigger repository"
+        exit 1
+    fi
+done
+
+
+################################## implementations ####################################
+
+for query_file in "$@"; do
+    # command line arguments handle
+    if [ "$query_file" = '--force' ] || [ "$query_file" = '--cached' ]; then
+        continue
+    fi
+
+    # in stagged    
+    if [ -f ".tigger/stagged/$(basename "$query_file")" ]; then
+        if [ $force = true ]; then
+            # if deleted file is in repo, add !file to index
+            if [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+                touch ".tigger/stagged/!$(basename "$query_file")"
+            fi
+            rm ".tigger/stagged/$(basename "$query_file")" 2>/dev/null
+            rm ".tigger/$repo/$(basename "$query_file")" 2>/dev/null
+            if [ $cached = false ]; then
+                rm "$query_file" 2>/dev/null
+            fi
+        # if cached and file is not in repo
+        elif [ $cached = true ] && ! [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+            # if deleted file is in repo, add !file to index
+            if [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+                touch ".tigger/stagged/!$(basename "$query_file")"
+            fi
+            rm ".tigger/stagged/$(basename "$query_file")" 2>/dev/null
+
+        # if cached and file is in repo, but file in repo and stagged are the same
+        elif  [ $cached = true ] && [ -f ".tigger/$repo/$(basename "$query_file")" ] &&\
+            cmp --silent ".tigger/stagged/$(basename "$query_file")" ".tigger/$repo/$(basename "$query_file")" 2>/dev/null; then
+            # if deleted file is in repo, add !file to index
+            if [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+                touch ".tigger/stagged/!$(basename "$query_file")"
+            fi
+            rm ".tigger/stagged/$(basename "$query_file")" 2>/dev/null
+            rm ".tigger/$repo/$(basename "$query_file")" 2>/dev/null
+
+        # if cached and file is in repo, but file in repo and working dir are the same
+        elif  [ $cached = true ] && [ -f ".tigger/$repo/$(basename "$query_file")" ] &&\
+            cmp --silent "$query_file" ".tigger/$repo/$(basename "$query_file")" 2>/dev/null; then
+            # if deleted file is in repo, add !file to index
+            if [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+                touch ".tigger/stagged/!$(basename "$query_file")"
+            fi
+            rm ".tigger/stagged/$(basename "$query_file")" 2>/dev/null
+            rm ".tigger/$repo/$(basename "$query_file")" 2>/dev/null
+
+        # if cached and file is in repo, but file in stagged and working dir are the same
+        else  
+            # [ $cached = true ] && [ -f ".tigger/$repo/$(basename "$query_file")" ] &&\
+            #   cmp --silent "$query_file" ".tigger/stagged/$(basename "$query_file")" 2>/dev/null;
+            touch ".tigger/stagged/!$(basename "$query_file")"
+            rm ".tigger/stagged/$(basename "$query_file")" 2>/dev/null
+            rm ".tigger/$repo/$(basename "$query_file")" 2>/dev/null
+        fi
+
+    # in repo 
+    else 
+        # put a !file in stagged/ to indicate deleting
+        touch ".tigger/stagged/!$(basename "$query_file")"
+        rm ".tigger/$repo/$(basename "$query_file")" 2>/dev/null
+        if [ $cached = false ]; then
+            rm "$query_file" 2>/dev/null
+        fi
+    fi
+done
+

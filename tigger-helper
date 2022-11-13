@@ -1,0 +1,15 @@
+#!/bin/dash
+
+# check if the repository is a tigger repository
+# and check if this is a git repository
+check_tigger_repository() {
+    if ! [ -d .tigger ]; then
+        echo "$1: error: tigger repository directory .tigger not found"
+        exit 1
+    fi
+
+    if [ -d .git ]; then
+        echo "$1: error: can not run tigger because .git present in current directory"
+        exit 1
+    fi
+}

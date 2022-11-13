@@ -1,0 +1,11 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-log"
+
+# The tigger-log command prints a line for every commit made to the repository: 
+# each line should contain the commit number and the commit message.
+
+logs=$(cat .tigger/.current_branch)/logs
+cat .tigger/"$logs"

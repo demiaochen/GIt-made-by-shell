@@ -1,0 +1,75 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-branch"
+
+# check if there is commited yet
+if [ "$(cat .tigger/.current_commit_num)" -eq 0 ]; then
+    echo "tigger-branch: error: this command can not be run until after the first commit"
+    exit 1
+fi
+
+# show branch list in sorted order
+if [ $# -eq 0 ]; then
+    < .tigger/.branch_list sort -k1 
+
+# create branch
+elif [ $# -eq 1 ]; then
+    branch_name=$1
+    # check if branch exists
+    if [ -d .tigger/repos/"$branch_name" ]; then
+        echo "tigger-branch: error: branch '$branch_name' already exists"
+        exit 1
+    fi
+
+    # check if branch name is valid: it's assumed to be valid in specs
+
+    # create branch by copying the current branch to it
+    current_branch=$(cat .tigger/.current_branch)
+    cp -R .tigger/"$current_branch" .tigger/repos/"$branch_name"
+    echo "$branch_name" >> .tigger/.branch_list
+
+# delete branch
+elif [ $# -eq 2 ] && { [ "$1" = '-d' ] || [ "$2" = '-d' ]; }; then
+    if [ "$1" = '-d' ]; then
+        branch_name="$2"
+    else
+        branch_name="$1"
+    fi
+
+    # cannot delete master, and current branch (not required)
+    if [ "$branch_name" = "master" ]; then
+        echo "tigger-branch: error: can not delete branch 'master'"
+        exit 1
+    fi
+
+    # check if branch exists
+    if ! [ -d .tigger/repos/"$branch_name" ]; then
+        echo "tigger-branch: error: branch '$branch_name' doesn't exist"
+        exit 1
+    fi
+
+    # unmerged changes error
+    current_branch=$(cat .tigger/.current_branch)
+    for file in .tigger/repos/"$branch_name"/repo/*; do
+        if ! [ -f .tigger/"$current_branch"/repo/"$(basename "$file")" ] ||\
+           ! cmp --silent "$file" .tigger/"$current_branch"/repo/"$(basename "$file")" 2>/dev/null; then
+            echo "tigger-branch: error: branch '$branch_name' has unmerged changes"
+            exit 1
+        fi
+    done
+
+
+
+    # delete branch and delele branch name from list
+    rm -Rf .tigger/repos/"$branch_name"
+    sed -E "/^$branch_name\$/d" .tigger/.branch_list > .tigger/.branch_list_tmp
+    cat .tigger/.branch_list_tmp > .tigger/.branch_list
+    rm .tigger/.branch_list_tmp
+    echo "Deleted branch '$branch_name'"
+
+else
+    echo "usage: tigger-branch [-d] <branch>"
+    exit 1
+fi

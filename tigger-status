@@ -1,0 +1,114 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-status"
+
+# get repo from current_branch
+repo=$(cat .tigger/.current_branch)/repo
+
+# tigger-status shows the status of files in the current directory, the index, and the repository.
+
+# temporary file to store status info in order to sort in the end
+STATUS_FILE=.tigger/.tmp_status
+touch $STATUS_FILE
+
+# working dirctory
+for query_file in *; do
+    # if working dirctory is empty
+    if [ "$query_file" = "*" ]; then
+        break
+    fi
+
+    # if file starts with ".", ignore it
+    query_file_base="$(basename "$query_file")"
+    if [ "${query_file_base%"${query_file_base#?}"}" = "." ]; then
+        continue
+    fi
+    
+    # if file in stagged/
+    if [ -f ".tigger/stagged/$(basename "$query_file")" ]; then
+        # if file in $repo/
+        if [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+           # if file in working dir and stagged are not the same
+            if ! cmp --silent "$query_file" \
+                            ".tigger/stagged/$(basename "$query_file")"; then
+                echo "$query_file - file changed, different changes staged for commit" >>$STATUS_FILE
+            # if file in repo and stagged are not the same
+            elif ! cmp --silent ".tigger/stagged/$(basename "$query_file")" \
+                            ".tigger/$repo/$(basename "$query_file")"; then
+                echo "$query_file - file changed, changes staged for commit" >>$STATUS_FILE
+            else 
+                # impossible to be here
+                true
+            fi
+
+        # file not in repo, file in working dir but changed
+        elif ! cmp --silent "$query_file" ".tigger/stagged/$(basename "$query_file")"; then
+            echo "$query_file - added to index, file changed" >>$STATUS_FILE
+        else 
+            echo "$query_file - added to index" >>$STATUS_FILE
+        fi
+
+    elif [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+        # if file in working dir and repo are the same
+        if cmp --silent "$query_file" ".tigger/$repo/$(basename "$query_file")"; then   
+            echo "$query_file - same as repo" >>$STATUS_FILE
+        else 
+            echo "$query_file - file changed, changes not staged for commit" >>$STATUS_FILE
+        fi
+    else 
+        echo "$query_file - untracked" >>$STATUS_FILE
+    fi
+done
+
+
+# stagged dirctory
+for query_file in .tigger/stagged/*; do
+    # if stagged/ is empty
+    if [ "$query_file"  =  ".tigger/stagged/*" ] ; then
+        break
+    fi
+
+    # if file starts with "!", and not in working dir: print - deleted
+    query_file_base="$(basename "$query_file")"
+    if [ "${query_file_base%"${query_file_base#?}"}" = "!" ] &&
+       ! [ -f "${query_file_base#?}" ]; then
+        echo  "${query_file_base#?} - deleted" >>$STATUS_FILE
+        continue
+    fi
+    
+    # if file NOT in working dirctory
+    if ! [ -f "$(basename "$query_file")" ]; then
+        if [ -f ".tigger/$repo/$(basename "$query_file")" ]; then
+            if ! cmp --silent ".tigger/stagged/$(basename "$query_file")" \
+                ".tigger/$repo/$(basename "$query_file")"; then
+                echo "$query_file_base - file deleted, different changes staged for commit" >>$STATUS_FILE
+            else
+                echo "$query_file_base - file deleted" >>$STATUS_FILE
+            fi
+        # if file not starting with "!"
+        elif ! [ "${query_file_base%"${query_file_base#?}"}" = "!" ]; then
+            echo "$query_file_base - added to index, file deleted" >>$STATUS_FILE
+        fi
+    fi
+done
+
+
+# repo directory
+for query_file in .tigger/"$repo"/*; do
+    # if stagged/ is empty
+    if [ "$query_file"  =  ".tigger/$repo/*" ] ; then
+        break
+    fi
+
+    # if file NOT in working dirctory and NOT in stagged/
+    if ! [ -f "$(basename "$query_file")" ] && ! [ -f ".tigger/stagged/$(basename "$query_file")" ]; then
+        echo "$(basename "$query_file") - file deleted" >>$STATUS_FILE
+    fi
+done
+
+
+# print status file sorted based on filename and delete status file
+< $STATUS_FILE  sort -k1 
+rm $STATUS_FILE

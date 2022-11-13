@@ -1,0 +1,146 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-commit"
+
+# get repo, commits, logs from current_branch
+repo=$(cat .tigger/.current_branch)/repo
+commits=$(cat .tigger/.current_branch)/commits
+logs=$(cat .tigger/.current_branch)/logs
+
+# The tigger-commit command saves a copy of all files in the index to the repository.
+# A message describing the commit must be included as part of the commit command.
+# Tigger commits are numbered sequentially: they are not hashes, 
+# like Git. You must match the numbering scheme.
+# You can assume the commit message is ASCII, does not contain new-line characters, 
+# and does not start with a '-' character.
+
+# In this program:
+# stagged/ and repos/ both constitute index
+# stagged/ is new changes ready to commit
+# repos is all committed files
+
+########################## command line arguments handle #############################
+usage(){
+    echo "usage: tigger-commit [-a] -m commit-message"
+    exit 1
+}
+
+# usage: tigger-commit [-a] -m commit-message
+if  [ $# -eq 2 ] ||  [ $# -eq 3 ]; then
+    if [ "$1" = '-m' ]; then
+        if ! [ "${2%"${2#?}"}" = "-"  ]; then
+            message=$2
+            if [ $# = 3 ] && [ "$3" != '-a' ]; then
+                usage
+            fi
+        else
+            usage
+        fi
+    fi
+    if [ "$2" = '-m' ]; then
+        if ! [ "${3%"${3#?}"}" = "-"  ]; then
+            message=$3
+            if [ "$1" != '-a' ]; then
+                usage
+            fi
+        else
+            usage
+        fi
+    fi
+    if ! [ "$1" = '-m' ] && ! [ "$1" = '-a' ]; then
+        usage
+    fi
+else
+    usage
+fi
+
+
+################################## implementations ####################################
+# FLAG -a is on: 
+# check all files in stagged and repo if they are deleted or chnaged
+# in current directory
+
+# flag to check if there are changes made in -a mode
+commit_flag=false
+
+if [ $# -eq 3 ]; then
+
+    # check changes between $repo/ and current directory
+    for file in .tigger/"$repo"/*; do
+        # emtpy
+        if [ "$file" = ".tigger/$repo/*" ]; then 
+            break 
+        fi
+
+        # remove file in repo if it is deleted in working dir
+        if ! [ -f "$(basename "$file")" ]; then
+            rm "$file" 2>/dev/null
+            commit_flag=true
+
+        # change file in repo if it is changed in working dir
+        elif ! cmp --silent "$file" "$(basename "$file")"; then
+            cp "$(basename "$file")" "$file" 2>/dev/null
+            commit_flag=true
+        fi
+    done
+
+    # check changes between stagged/ and current directory
+    for file in .tigger/stagged/*; do
+        # empty
+        if [ "$file" = ".tigger/stagged/*" ]; then 
+            break 
+        fi
+
+        # remove file in stagged if it is deleted in working dir but not in repo
+        if ! [ -f .tigger/"$repo"/"$(basename "$file")" ] && ! [ -f "$(basename "$file")" ]; then
+            rm "$file" 2>/dev/null
+            commit_flag=true  # I don't think it commited anything, but ref says there is
+
+        # change file in stagged if it is changed in working dir
+        elif ! cmp --silent "$file" "$(basename "$file")"; then
+            cp "$(basename "$file")" "$file" 2>/dev/null
+        fi
+    done
+fi
+
+
+# check if stagged directory is empty or has committed, if so, quit wit 0
+if ! [ "$(ls -A .tigger/stagged)" ] && [ $commit_flag = false ] ; then
+    echo "nothing to commit"
+    exit 0
+fi
+
+
+# move files from stagged to repo directory
+# then copy files from repo to commit$idx/
+for file in .tigger/stagged/*; do
+    file_base=$(basename "$file")
+    # if file_base starts with '!', 
+    # it will delete the file_base w/o '!' in repo
+    if [ "${file_base%"${file_base#?}"}" = "!" ]; then 
+        rm  .tigger/"$repo"/"${file_base#?}" 2> /dev/null
+        rm "$file" 2> /dev/null
+    else 
+        mv "$file" .tigger/"$repo"/ 2> /dev/null
+    fi
+done
+
+idx=$(cat .tigger/.current_commit_num)
+mkdir .tigger/"$commits"/commit"$idx"/
+for file in .tigger/"$repo"/*; do
+    cp "$file" .tigger/"$commits"/commit"$idx"/ 2>/dev/null
+done
+
+# logs:
+# append commit message to logs at the beginning 
+echo "$idx $message" > .tigger/tmp_logs;
+cat .tigger/"$logs" >> .tigger/tmp_logs
+mv .tigger/tmp_logs .tigger/"$logs"
+
+echo "Committed as commit $idx"
+
+# increment universal commit number (shared by all repositories)
+idx=$((idx+1))
+echo "$idx" > .tigger/.current_commit_num

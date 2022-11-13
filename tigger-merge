@@ -1,0 +1,79 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-rm"
+
+# helper func
+is_integer ()
+{
+    [ "$1" -eq "$1" ] 2>/dev/null
+}
+
+#################################### command line error #######################################
+
+# check if there is commited yet
+if [ "$(cat .tigger/.current_commit_num)" -eq 0 ]; then
+    echo "tigger-branch: error: this command can not be run until after the first commit"
+    exit 1
+fi
+
+if ! [ $# -eq 3 ] && ! [ $# -eq 1 ]; then
+   echo "usage: tigger-merge <branch|commit> -m message"
+   exit 1
+fi
+
+if [ $# -eq 1 ]; then
+   echo "tigger-merge: error: empty commit message"
+   exit 1
+fi
+
+
+#################################### implementations #######################################
+
+if is_integer "$1" ; then
+    echo "tigger-merge: error: unknown commit '$1'"
+    exit 1
+else 
+    merge_branch=repos/"$1"
+    current_branch=$(cat .tigger/.current_branch)
+    if ! [ -d .tigger/"$merge_branch" ]; then
+        echo "tigger-merge: error: unknown branch '$1'"
+        exit 1
+    fi
+
+    # check merge conf
+    for file in .tigger/"$merge_branch"/repo/*; do
+        if [ "$file" = ".tigger/$merge_branch/repo/*" ]; then
+            break
+        fi
+        if [ -f .tigger/"$current_branch"/repo/"$(basename "$file")" ] &&\
+           ! cmp --silent "$file" .tigger/"$current_branch"/repo/"$(basename "$file")"; then
+            echo "tigger-merge: error: These files can not be merged:"
+            for cantmerged_file in .tigger/"$merge_branch"/repo/*; do
+                if [ -f .tigger/"$current_branch"/repo/"$(basename "$cantmerged_file")" ]&&\
+                ! cmp --silent "$file" .tigger/"$current_branch"/repo/"$(basename "$file")"; then
+                    basename "$cantmerged_file"
+                fi
+            done
+            exit 1
+        fi
+    done
+
+    # merge files
+    for file in .tigger/"$merge_branch"/repo/*; do
+        if [ "$file" = ".tigger/$merge_branch/repo/*" ]; then
+            break
+        fi
+        cp "$file" .tigger/"$current_branch"/repo/"$(basename "$file")" 2>/dev/null
+        cp "$file" . 2>/dev/null
+    done
+
+    # merge logs and then sort it
+    cat .tigger/"$merge_branch"/logs >> .tigger/"$current_branch"/logs
+    sort -r .tigger/"$current_branch"/logs | uniq  > .tigger/"$current_branch"/logs.tmp
+    cat .tigger/"$current_branch"/logs.tmp > .tigger/"$current_branch"/logs
+    rm .tigger/"$current_branch"/logs.tmp
+
+    echo "Fast-forward: no commit created"
+fi

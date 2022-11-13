@@ -1,0 +1,79 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-checkout"
+
+PATH="$PATH:$(pwd)"
+
+############################################ error ##################################################
+
+# check if there is commited yet
+if [ "$(cat .tigger/.current_commit_num)" -eq 0 ]; then
+    echo "tigger-branch: error: this command can not be run until after the first commit"
+    exit 1
+fi
+
+if ! [ $# -eq 1 ]; then
+   echo "usage: tigger-checkout <branch>"
+   exit 1
+fi
+
+switch_branch=repos/"$1"
+current_branch=$(cat .tigger/.current_branch)
+
+# already on this branch
+if [ "$switch_branch" = "$current_branch" ]; then
+    echo "Already on '$1'"
+    exit 0
+fi
+
+# unknown branch
+if ! [ -d .tigger/"$switch_branch" ]; then
+    echo "tigger-checkout: error: unknown branch '$1'"
+    exit 1
+fi
+
+
+######################################### implementations ##############################################
+
+# if files in working dir is in the switch branch's repo and not in current branch's repo, error
+for file in *; do
+    if [ -f .tigger/"$switch_branch"/repo/"$file" ] && ! [ -f .tigger/"$current_branch"/repo/"$file" ]; then
+        echo "tigger-checkout: error: Your changes to the following files would be overwritten by checkout:"
+        for overwritten_file in *; do
+            if [ -f .tigger/"$switch_branch"/repo/"$overwritten_file" ] &&\
+             ! [ -f .tigger/"$current_branch"/repo/"$overwritten_file" ]; then
+                basename "$overwritten_file"
+            fi 
+        done
+        exit 1
+    fi
+done
+
+
+# remove files that are same as repo in current branch
+for file in *; do
+    # if file starts with ".", ignore it
+    file_base="$(basename "$file")"
+    if [ "${file_base%"${file_base#?}"}" = "." ]; then
+        continue
+    fi
+
+    # if file is same as repo in current branch, remove it
+    if [ -f .tigger/"$current_branch"/repo/"$file_base" ] &&
+        cmp  --silent "$file" ".tigger/$current_branch/repo/$file_base" ; then
+        rm "$file"
+    fi
+done
+
+# copy files from switch branch to working directory
+for file in .tigger/"$switch_branch"/repo/*; do
+    if  ! [ -f "$(basename "$file")" ]; then
+        cp "$file" .
+    fi
+done
+
+# change current branch to switch branch
+echo "$switch_branch" > .tigger/.current_branch
+echo "Switched to branch '$1'"

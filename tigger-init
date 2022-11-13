@@ -1,0 +1,32 @@
+#!/bin/dash
+
+# The tigger-init command creates an empty Tigger repository.
+# tigger-init should create a directory named .tigger, 
+# which it will use to store the repository. 
+# It will produce an error message if this directory already exists.
+
+if [ -d .git ]; then
+    echo "tigger-init: error: can not run tigger because .git present in current directory"
+    exit 1
+fi
+
+
+if [ -d .tigger ]; then
+    echo "tigger-init: error: .tigger already exists"
+    exit 1
+fi
+
+mkdir .tigger
+mkdir .tigger/stagged
+mkdir .tigger/repos
+
+echo repos/master > .tigger/.current_branch
+echo master > .tigger/.branch_list
+echo 0 > .tigger/.current_commit_num
+
+mkdir .tigger/"$(cat .tigger/.current_branch)"/
+mkdir .tigger/"$(cat .tigger/.current_branch)"/repo
+mkdir .tigger/"$(cat .tigger/.current_branch)"/commits
+touch .tigger/"$(cat .tigger/.current_branch)"/logs
+
+echo "Initialized empty tigger repository in .tigger"

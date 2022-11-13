@@ -1,0 +1,66 @@
+#!/bin/dash
+
+# check .tigger exists
+. "$(dirname "$0")/tigger-helper"
+check_tigger_repository "tigger-show"
+
+# get repo, commits from current_branch
+repo=$(cat .tigger/.current_branch)/repo
+commits=$(cat .tigger/.current_branch)/commits
+
+# The tigger-show should print the contents of the specified filename 
+# as of the specified commit. If commit is omitted, the contents of 
+# the file in the index should be printed.
+
+if [ $# -ne 1 ]; then
+    echo "usage: tigger-show <commit>:<filename>"
+    exit 1
+fi
+
+# check if $1 contains ":", if not print error message and exit
+if [ "${1#*":"}" = "$1" ]; then
+    echo "tigger-show: error: invalid object $1"
+    exit 1
+fi
+
+commit_number=$(echo "$1" | cut -d ":" -f1)
+query_file=$(echo "$1" | cut -d ":" -f2)
+
+# print the file content in stagged / repo directory
+# print erorr message if not found
+if [ "$commit_number" = "" ]; then
+    for file in .tigger/stagged/*; do
+        if [ "$(basename "$file")" = "$query_file" ]; then
+            cat "$file"
+            exit 0
+        fi
+    done
+    for file in .tigger/"$repo"/*; do
+        if [ "$(basename "$file")" = "$query_file" ]; then
+            cat "$file"
+            exit 0
+        fi
+    done
+    echo "tigger-show: error: '$query_file' not found in index"
+    exit 1
+
+# print erorr message if commit number directory not exist
+elif ! [ -d .tigger/"$commits"/commit"$commit_number" ]; then
+    echo "tigger-show: error: unknown commit '$commit_number'"
+    exit 1
+else
+    query_directory=.tigger/"$commits"/commit$commit_number
+fi
+
+
+# print the file content in commit$idx directory
+for file in "$query_directory"/*; do
+    if [ "$(basename "$file")" = "$query_file" ]; then
+        cat "$file"
+        exit 0
+    fi
+done
+
+# print error if file not found in the commit directory
+echo "tigger-show: error: '$query_file' not found in commit $commit_number"
+exit 1
